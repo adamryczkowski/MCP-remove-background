@@ -177,3 +177,141 @@ test-package:
     #!/usr/bin/env bash
     set -euo pipefail
     bash ./scripts/test-package.sh
+
+# Recreate virtual environment with a specific Python version
+# Usage: just recreate-venv [python_version]
+# Example: just recreate-venv 3.12
+recreate-venv python_version="3.12":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Installing Python {{ python_version }} via mise if needed..."
+    mise install python@{{ python_version }} || true
+    mise use python@{{ python_version }}
+    # Get the full path to the Python executable
+    PYTHON_PATH="$HOME/.local/share/mise/installs/python/{{ python_version }}.12/bin/python"
+    if [ ! -x "$PYTHON_PATH" ]; then
+      # Try to find the exact version
+      PYTHON_PATH=$(find "$HOME/.local/share/mise/installs/python" -name "python" -path "*{{ python_version }}*" -type f 2>/dev/null | head -1)
+    fi
+    if [ ! -x "$PYTHON_PATH" ]; then
+      echo "ERROR: Could not find Python {{ python_version }} executable"
+      exit 1
+    fi
+    echo "==> Using Python: $PYTHON_PATH"
+    $PYTHON_PATH --version
+    echo "==> Removing existing virtual environment..."
+    rm -rf .venv
+    rm -f poetry.lock
+    echo "==> Configuring Poetry to use Python {{ python_version }}..."
+    poetry env use "$PYTHON_PATH"
+    echo "==> Regenerating lock file..."
+    poetry lock
+    echo "==> Installing dependencies..."
+    poetry install --with dev,test
+    echo "==> Virtual environment recreated with Python {{ python_version }}"
+
+# =============================================================================
+# Shared HTTP Server Mode (for reduced CPU usage with multiple VS Code windows)
+# =============================================================================
+
+# Run MCP server with Streamable HTTP transport (shared mode)
+# This allows multiple VS Code windows to connect to a single server instance,
+# reducing idle CPU usage from ~10% (7 instances) to ~1.3% (1 instance).
+serve-http host="127.0.0.1" port="8083":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Starting mcp-remove-background server in shared HTTP mode..."
+    echo "Configure VS Code to connect to: http://{{ host }}:{{ port }}/mcp"
+    poetry run mcp-remove-background serve --transport streamable-http --host "{{ host }}" --port "{{ port }}"
+
+# Check if MCP HTTP server is running
+mcp-status port="8083":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if curl -s --max-time 2 "http://127.0.0.1:{{ port }}/mcp" >/dev/null 2>&1; then
+      echo "MCP HTTP server is running on port {{ port }}"
+    else
+      echo "MCP HTTP server is NOT running on port {{ port }}"
+      exit 1
+    fi
+
+# Install and enable systemd user service for MCP HTTP server
+# This creates a service that starts the MCP server with HTTP transport on login.
+install-systemd-service:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Determine the path to mcp-remove-background executable
+    MCP_PATH=""
+    if command -v mcp-remove-background >/dev/null 2>&1; then
+      MCP_PATH=$(command -v mcp-remove-background)
+    elif [ -x "$HOME/.local/bin/mcp-remove-background" ]; then
+      MCP_PATH="$HOME/.local/bin/mcp-remove-background"
+    elif [ -f "$(pwd)/.venv/bin/mcp-remove-background" ]; then
+      MCP_PATH="$(pwd)/.venv/bin/mcp-remove-background"
+    else
+      echo "Error: mcp-remove-background not found. Install it first with: pipx install ."
+      exit 1
+    fi
+
+    WORKING_DIR="$(pwd)"
+    PORT="8083"
+
+    echo "Creating systemd user service..."
+    echo "  Working directory: $WORKING_DIR"
+    echo "  MCP path: $MCP_PATH"
+    echo "  Port: $PORT"
+
+    # Create service file from template
+    mkdir -p ~/.config/systemd/user/
+    sed -e "s|__WORKING_DIR__|$WORKING_DIR|g" \
+        -e "s|__MCP_PATH__|$MCP_PATH|g" \
+        -e "s|__PORT__|$PORT|g" \
+        scripts/mcp-remove-background.service.template > ~/.config/systemd/user/mcp-remove-background.service
+
+    # Reload systemd
+    systemctl --user daemon-reload
+
+    # Enable the service (starts on login)
+    systemctl --user enable mcp-remove-background
+
+    # Start the service now
+    systemctl --user start mcp-remove-background
+
+    echo ""
+    echo "✓ MCP systemd service installed and started!"
+    echo ""
+    echo "The server is now running at: http://127.0.0.1:$PORT/mcp"
+    echo ""
+    echo "Useful commands:"
+    echo "  systemctl --user status mcp-remove-background   # Check status"
+    echo "  systemctl --user stop mcp-remove-background     # Stop the server"
+    echo "  systemctl --user restart mcp-remove-background  # Restart the server"
+    echo "  journalctl --user -u mcp-remove-background -f   # View logs"
+    echo ""
+    echo "To use in VS Code, update your MCP configuration:"
+    echo '  "remove-background": {'
+    echo '    "type": "streamable-http",'
+    echo "    \"url\": \"http://127.0.0.1:$PORT/mcp\""
+    echo '  }'
+
+# Uninstall systemd user service for MCP HTTP server
+uninstall-systemd-service:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "Stopping and disabling MCP systemd service..."
+
+    # Stop the service if running
+    systemctl --user stop mcp-remove-background 2>/dev/null || true
+
+    # Disable the service
+    systemctl --user disable mcp-remove-background 2>/dev/null || true
+
+    # Remove the service file
+    rm -f ~/.config/systemd/user/mcp-remove-background.service
+
+    # Reload systemd
+    systemctl --user daemon-reload
+
+    echo "✓ MCP systemd service uninstalled."

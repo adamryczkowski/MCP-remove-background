@@ -1,0 +1,16 @@
+[Unit]
+Description=MCP Remove Background Server (HTTP Transport)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__WORKING_DIR__
+ExecStart=__MCP_PATH__ serve --transport streamable-http --host 127.0.0.1 --port __PORT__
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

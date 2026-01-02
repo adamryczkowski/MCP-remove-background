@@ -7,15 +7,28 @@ name = "MCP_remove_background"
 version = "0.1.0"
 description = "MCP server that removes background from images"
 readme = "README.md"
-requires-python = ">= 3.13.11"
+requires-python = ">= 3.12"
 authors = [{ name = "Adam Ryczkowski" }]
-keywords = ["cookiecutter", "template", "python"]
+keywords = ["mcp", "background-removal", "rembg", "image-processing"]
 
 [project.urls]
 Homepage = "https://example.com"
 
+[project.scripts]
+mcp-remove-background = "MCP_remove_background.cli:main"
+
 [tool.poetry]
 packages = [{ include = "MCP_remove_background" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastmcp = "^2.3.0"
+pydantic = "^2.10.0"
+pydantic-settings = "^2.7.0"
+click = "^8.1.0"
+# Background removal dependencies
+rembg = {version = "^2.0.69", extras = ["cpu"]}
+pillow = "^11.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.0.1"
@@ -23,7 +36,14 @@ pyright = "^1.1.405"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.0"
+pytest-asyncio = "^0.25.0"
 coverage = "^7.6.0"
+
+[tool.poetry.group.gpu]
+optional = true
+
+[tool.poetry.group.gpu.dependencies]
+onnxruntime-gpu = "^1.19.0"
 
 [tool.pyright]
 venvPath = "."
@@ -34,6 +54,7 @@ venv = ".venv"
 [tool.pytest.ini_options]
 python_files = ["test-*.py", "test_*.py", "*_test.py"]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["MCP_remove_background"]
