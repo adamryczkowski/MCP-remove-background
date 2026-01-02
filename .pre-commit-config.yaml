@@ -1,0 +1,81 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: ^spack\.lock$
+      - id: trailing-whitespace
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: mixed-line-ending
+      - id: debug-statements
+  - repo: https://github.com/sirwart/ripsecrets
+    rev: 7d94620933e79b8acaa0cd9e60e9864b07673d86  # frozen: v0.1.11
+    hooks:
+      - id: ripsecrets
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 5ba58aca0bd5bc7c0e1c0fc45af2e88d6a2bde83  # frozen: v0.14.10
+    hooks:
+      - id: ruff
+        name: ruff lint
+        args: [--fix]
+      - id: ruff-format
+        name: ruff-format
+  - repo: https://github.com/python-poetry/poetry
+    rev: b9e5d79fc57de2f2e60973019d56662b7398440b  # frozen: 2.2.1
+    hooks:
+      - id: poetry-check
+        name: poetry check
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: 53e8efb4638daca6c541d18ad35dafb0e5d9f34d  # frozen: v1.1.407
+    hooks:
+      - id: pyright
+        name: pyright
+  - repo: https://github.com/codespell-project/codespell
+    rev: 63c8f8312b7559622c0d82815639671ae42132ac  # frozen: v2.4.1
+    hooks:
+      - id: codespell
+        files: \.(md|rst|adoc|txt)$
+        args: [-L, thirdparty]
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest with coverage
+        entry: bash -c 'poetry run coverage run --source MCP_remove_background -m
+          pytest -W error::RuntimeWarning && poetry run coverage report -m'
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: valgrind-pytests
+        name: valgrind memcheck for pytest (manual)
+        entry: bash scripts/valgrind-pytests.sh
+        language: system
+        pass_filenames: false
+        stages: [manual]
+        always_run: true
+  - repo: https://github.com/lyz-code/yamlfix
+    rev: f857ca370af3db7e5e181373d45c06a148fac3f8  # frozen: 1.19.1
+    hooks:
+      - id: yamlfix
+  - repo: https://github.com/adrienverge/yamllint
+    rev: 79a6b2b1392eaf49cdd32ac4f14be1a809bbd8f7  # frozen: v1.37.1
+    hooks:
+      - id: yamllint
+        args:
+          - -d
+          - '{extends: default, rules: {line-length: {max: 120}, truthy: disable}}'
+  - repo: https://github.com/adamryczkowski/beautysh
+    rev: 852c59e69c197d05e69e4fc9388abbef3f79f524  # frozen: v6.2.3
+    hooks:
+      - id: beautysh
+        args: [--indent-size=4, --tab, --force-function-style=fnpar]
+  - repo: https://github.com/detailyang/pre-commit-shell
+    rev: 062f0b028ae65827e04f91c1e6738cfcbe9b337f  # frozen: 1.0.5
+    hooks:
+      - id: shell-lint
+        stages: [manual]

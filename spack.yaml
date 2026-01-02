@@ -1,0 +1,21 @@
+---
+# Spack environment for MCP-remove-background
+# This file defines system-level dependencies managed by Spack.
+# See: https://spack.readthedocs.io/en/latest/environments.html
+spack:
+  # Root specs for this project
+  specs:
+    # Using @X.Y to match any patch version (e.g., 3.12 matches 3.12.12)
+    # This allows Spack to pick a version with a valid checksum
+    - python@3.13.11
+  # Create a unified view with symlinks for easy PATH integration
+  view: true
+  # Prefer to deduplicate dependency trees across root specs
+  concretizer:
+    unify: when_possible
+    reuse: true
+  # Package requirements to avoid broken/future versions
+  packages:
+    ncurses:
+      # Require exactly stable 6.5 release (avoid broken "current" snapshots with future dates)
+      require: '@=6.5'

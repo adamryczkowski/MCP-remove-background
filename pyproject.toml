@@ -1,0 +1,45 @@
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "MCP_remove_background"
+version = "0.1.0"
+description = "MCP server that removes background from images"
+readme = "README.md"
+requires-python = ">= 3.13.11"
+authors = [{ name = "Adam Ryczkowski" }]
+keywords = ["cookiecutter", "template", "python"]
+
+[project.urls]
+Homepage = "https://example.com"
+
+[tool.poetry]
+packages = [{ include = "MCP_remove_background" }]
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^4.0.1"
+pyright = "^1.1.405"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.3.0"
+coverage = "^7.6.0"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
+# Configure pytest discovery so test-mock.py (hyphen) is collected.
+# Keep tests/pytest.ini file empty per requirements; configuration lives here.
+[tool.pytest.ini_options]
+python_files = ["test-*.py", "test_*.py", "*_test.py"]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["MCP_remove_background"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 0
