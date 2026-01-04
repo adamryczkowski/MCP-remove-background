@@ -7,8 +7,10 @@ from fastmcp import FastMCP
 
 from MCP_remove_background.constants import DEFAULT_MODEL, SUPPORTED_MODELS
 from MCP_remove_background.tools.remove_background import (
+    get_model_cache_status as _get_model_cache_status,
     list_background_models as _list_background_models,
     remove_background as _remove_background,
+    unload_models as _unload_models,
 )
 
 # Create the MCP server instance
@@ -64,6 +66,35 @@ def list_background_models() -> dict:
         Dictionary with models list and default model information.
     """
     result = _list_background_models()
+    return result.model_dump()
+
+
+@mcp.tool()
+def unload_models() -> dict:
+    """Unload all cached ML models to free memory.
+
+    Call this tool when you're done processing images to free up RAM.
+    ML models can consume 100MB-400MB each. Models will be automatically
+    reloaded on the next background removal request.
+
+    Returns:
+        Dictionary with unload status, including list of unloaded models.
+    """
+    result = _unload_models()
+    return result.model_dump()
+
+
+@mcp.tool()
+def get_model_cache_status() -> dict:
+    """Get current status of the model cache.
+
+    Returns information about which models are currently loaded,
+    auto-unload settings, and time until automatic unload.
+
+    Returns:
+        Dictionary with cache status including loaded models and timeout info.
+    """
+    result = _get_model_cache_status()
     return result.model_dump()
 
 

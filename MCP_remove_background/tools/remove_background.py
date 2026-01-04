@@ -13,11 +13,14 @@ from pydantic import BaseModel, Field
 from MCP_remove_background.constants import (
     DEFAULT_MODEL,
     SUPPORTED_MODELS,
+    UNLOAD_HINT,
 )
 from MCP_remove_background.exceptions import GenerationError, InvalidRequestError
 from MCP_remove_background.services.background_remover import (
     get_available_models,
+    get_cache_status,
     remove_background_from_file,
+    unload_models as service_unload_models,
 )
 
 
@@ -65,6 +68,37 @@ class RemoveBackgroundOutput(BaseModel):
     )
     error: str | None = Field(
         default=None, description="Error message if background removal failed"
+    )
+    hint: str | None = Field(
+        default=None,
+        description="Helpful tip about memory management after using ML models",
+    )
+
+
+class UnloadModelsOutput(BaseModel):
+    """Output schema for unload_models tool."""
+
+    success: bool = Field(description="Whether unload was successful")
+    models_unloaded: list[str] = Field(
+        description="List of model IDs that were unloaded"
+    )
+    models_count: int = Field(description="Number of models that were unloaded")
+    message: str = Field(description="Human-readable status message")
+
+
+class CacheStatusOutput(BaseModel):
+    """Output schema for get_cache_status tool."""
+
+    loaded_models: list[str] = Field(description="List of currently loaded model IDs")
+    models_count: int = Field(description="Number of loaded models")
+    idle_timeout: float = Field(description="Current idle timeout setting in seconds")
+    auto_unload_enabled: bool = Field(description="Whether auto-unload is enabled")
+    last_usage_time: float = Field(
+        description="Timestamp of last model usage (0 if never used)"
+    )
+    time_until_unload: float | None = Field(
+        default=None,
+        description="Seconds until auto-unload (None if disabled or no models)",
     )
 
 
@@ -134,6 +168,9 @@ async def remove_background(
         # Get file size
         file_size = Path(result_path).stat().st_size
 
+        # Add hint when ML model was used (not floodfill)
+        hint = UNLOAD_HINT if method_used != "floodfill" else None
+
         return RemoveBackgroundOutput(
             success=True,
             input_path=image_path,
@@ -141,6 +178,7 @@ async def remove_background(
             file_size_bytes=file_size,
             method_used=method_used,
             model_used=model,
+            hint=hint,
         )
 
     except InvalidRequestError as e:
@@ -178,4 +216,42 @@ def list_background_models() -> ListModelsOutput:
         total_count=len(models),
         default_model=DEFAULT_MODEL,
         usage_hint="Use the 'model' parameter in remove_background to specify which model to use.",
+    )
+
+
+def unload_models() -> UnloadModelsOutput:
+    """Unload all cached ML models to free memory.
+
+    Call this tool when you're done processing images to free up RAM.
+    ML models can consume 100MB-400MB each.
+
+    Returns:
+        UnloadModelsOutput with unload status.
+    """
+    result = service_unload_models()
+    return UnloadModelsOutput(
+        success=result["success"],
+        models_unloaded=result["models_unloaded"],
+        models_count=result["models_count"],
+        message=result["message"],
+    )
+
+
+def get_model_cache_status() -> CacheStatusOutput:
+    """Get current status of the model cache.
+
+    Returns information about loaded models, auto-unload settings,
+    and time until automatic unload.
+
+    Returns:
+        CacheStatusOutput with cache status.
+    """
+    status = get_cache_status()
+    return CacheStatusOutput(
+        loaded_models=status["loaded_models"],
+        models_count=status["models_count"],
+        idle_timeout=status["idle_timeout"],
+        auto_unload_enabled=status["auto_unload_enabled"],
+        last_usage_time=status["last_usage_time"],
+        time_until_unload=status["time_until_unload"],
     )

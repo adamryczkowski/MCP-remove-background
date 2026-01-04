@@ -11,9 +11,11 @@ Test IDs from plan:
 from MCP_remove_background.constants import (
     DEFAULT_COLOR_THRESHOLD,
     DEFAULT_MODEL,
+    DEFAULT_MODEL_IDLE_TIMEOUT,
     MIN_UNIFORM_BORDER_PERCENTAGE,
     MODEL_METADATA,
     SUPPORTED_MODELS,
+    UNLOAD_HINT,
 )
 
 
@@ -73,3 +75,24 @@ class TestFloodFillConfiguration:
     def test_min_uniform_border_percentage_valid(self) -> None:
         """TC-C05: Verify border percentage is between 0.8-1.0."""
         assert 0.8 <= MIN_UNIFORM_BORDER_PERCENTAGE <= 1.0
+
+
+class TestAutoUnloadConfiguration:
+    """Tests for model auto-unload configuration."""
+
+    def test_default_idle_timeout_is_positive(self) -> None:
+        """Verify default idle timeout is a positive number."""
+        assert DEFAULT_MODEL_IDLE_TIMEOUT > 0
+
+    def test_default_idle_timeout_reasonable(self) -> None:
+        """Verify default idle timeout is reasonable (1-30 minutes)."""
+        assert 60 <= DEFAULT_MODEL_IDLE_TIMEOUT <= 1800
+
+    def test_unload_hint_is_non_empty_string(self) -> None:
+        """Verify unload hint is a non-empty string."""
+        assert isinstance(UNLOAD_HINT, str)
+        assert len(UNLOAD_HINT) > 0
+
+    def test_unload_hint_mentions_unload_models(self) -> None:
+        """Verify unload hint mentions the unload_models tool."""
+        assert "unload_models" in UNLOAD_HINT

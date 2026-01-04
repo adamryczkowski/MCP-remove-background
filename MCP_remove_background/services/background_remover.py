@@ -7,12 +7,17 @@ This module provides background removal functionality for images using:
 The flood-fill approach is attempted first when border pixels have similar
 colors (within a perceptual threshold), as it's faster and produces clean
 results for AI-generated images with solid backgrounds.
+
+The service includes automatic model unloading after a configurable idle
+period to conserve RAM when not in use.
 """
 
 from __future__ import annotations
 
 import io
 import logging
+import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -23,6 +28,7 @@ from PIL import Image
 from MCP_remove_background.constants import (
     DEFAULT_COLOR_THRESHOLD,
     DEFAULT_MODEL,
+    DEFAULT_MODEL_IDLE_TIMEOUT,
     MIN_UNIFORM_BORDER_PERCENTAGE,
     MODEL_METADATA,
     OUTPUT_SUFFIX,
@@ -39,6 +45,18 @@ logger = logging.getLogger(__name__)
 # Global session cache for model reuse
 # Using Any type since BaseSession is not exported from rembg
 _session_cache: dict[str, Any] = {}
+
+# Track last usage time for auto-unload
+_last_usage_time: float = 0.0
+
+# Timer for auto-unload
+_unload_timer: threading.Timer | None = None
+
+# Lock for thread-safe cache operations
+_cache_lock = threading.Lock()
+
+# Current idle timeout setting (can be modified at runtime)
+_idle_timeout: float = float(DEFAULT_MODEL_IDLE_TIMEOUT)
 
 
 def get_border_pixels(image: Image.Image) -> list[tuple[int, int]]:
@@ -270,10 +288,89 @@ def remove_background_floodfill(
     return flood_fill_transparency(image, background_color, threshold)
 
 
+def _cancel_unload_timer() -> None:
+    """Cancel any pending auto-unload timer."""
+    global _unload_timer
+    if _unload_timer is not None:
+        _unload_timer.cancel()
+        _unload_timer = None
+
+
+def _schedule_auto_unload() -> None:
+    """Schedule automatic model unloading after idle timeout.
+
+    This function cancels any existing timer and schedules a new one
+    if the idle timeout is greater than 0.
+    """
+    global _unload_timer, _last_usage_time
+
+    _cancel_unload_timer()
+
+    if _idle_timeout <= 0:
+        return  # Auto-unload disabled
+
+    def _auto_unload() -> None:
+        """Callback to unload models after idle timeout."""
+        global _unload_timer
+        with _cache_lock:
+            if _session_cache:
+                elapsed = time.time() - _last_usage_time
+                if elapsed >= _idle_timeout:
+                    logger.info(
+                        f"Auto-unloading models after {elapsed:.1f}s idle "
+                        f"(timeout: {_idle_timeout}s)"
+                    )
+                    _session_cache.clear()
+                    _unload_timer = None
+                else:
+                    # Reschedule if there was recent activity
+                    remaining = _idle_timeout - elapsed
+                    _unload_timer = threading.Timer(remaining, _auto_unload)
+                    _unload_timer.daemon = True
+                    _unload_timer.start()
+
+    _unload_timer = threading.Timer(_idle_timeout, _auto_unload)
+    _unload_timer.daemon = True
+    _unload_timer.start()
+    logger.debug(f"Scheduled auto-unload in {_idle_timeout}s")
+
+
+def _update_last_usage() -> None:
+    """Update the last usage timestamp and reschedule auto-unload."""
+    global _last_usage_time
+    _last_usage_time = time.time()
+    _schedule_auto_unload()
+
+
+def set_idle_timeout(timeout_seconds: float) -> None:
+    """Set the idle timeout for automatic model unloading.
+
+    Args:
+        timeout_seconds: Timeout in seconds. Set to 0 to disable auto-unload.
+    """
+    global _idle_timeout
+    _idle_timeout = max(0.0, timeout_seconds)
+    logger.info(f"Model idle timeout set to {_idle_timeout}s")
+
+    if _session_cache:
+        # Reschedule with new timeout
+        _schedule_auto_unload()
+
+
+def get_idle_timeout() -> float:
+    """Get the current idle timeout setting.
+
+    Returns:
+        Current idle timeout in seconds.
+    """
+    return _idle_timeout
+
+
 def get_session(model: str) -> Any:
     """Get or create a rembg session for the specified model.
 
     Sessions are cached to avoid reloading models on each request.
+    Accessing a session updates the last usage time for auto-unload.
 
     Args:
         model: The model name to use for background removal.
@@ -291,21 +388,25 @@ def get_session(model: str) -> Any:
             f"Supported models: {', '.join(SUPPORTED_MODELS)}"
         )
 
-    if model not in _session_cache:
-        try:
-            # Import here to avoid loading rembg at module import time
-            from rembg import new_session
+    with _cache_lock:
+        if model not in _session_cache:
+            try:
+                # Import here to avoid loading rembg at module import time
+                from rembg import new_session
 
-            logger.info(f"Creating new rembg session with model: {model}")
-            _session_cache[model] = new_session(model)
-            logger.info(f"Successfully created session for model: {model}")
-        except Exception as e:
-            logger.error(f"Failed to create rembg session: {e}")
-            raise GenerationError(
-                f"Failed to initialize background removal model '{model}': {e}"
-            ) from e
+                logger.info(f"Creating new rembg session with model: {model}")
+                _session_cache[model] = new_session(model)
+                logger.info(f"Successfully created session for model: {model}")
+            except Exception as e:
+                logger.error(f"Failed to create rembg session: {e}")
+                raise GenerationError(
+                    f"Failed to initialize background removal model '{model}': {e}"
+                ) from e
 
-    return _session_cache[model]
+        # Update usage time and reschedule auto-unload
+        _update_last_usage()
+
+        return _session_cache[model]
 
 
 def remove_background_from_bytes(
@@ -475,6 +576,83 @@ def clear_session_cache() -> None:
     This should be called when shutting down the server or when
     memory usage needs to be reduced.
     """
-    global _session_cache
-    _session_cache.clear()
-    logger.info("Cleared background removal session cache")
+    with _cache_lock:
+        _cancel_unload_timer()
+        _session_cache.clear()
+        logger.info("Cleared background removal session cache")
+
+
+def get_loaded_models() -> list[str]:
+    """Get list of currently loaded model names.
+
+    Returns:
+        List of model IDs that are currently loaded in memory.
+    """
+    with _cache_lock:
+        return list(_session_cache.keys())
+
+
+def unload_models() -> dict[str, Any]:
+    """Unload all cached ML models to free memory.
+
+    This function immediately unloads all cached background removal models
+    and cancels any pending auto-unload timer.
+
+    Returns:
+        Dictionary with unload status including:
+        - success: Whether unload was successful
+        - models_unloaded: List of model IDs that were unloaded
+        - models_count: Number of models that were unloaded
+        - message: Human-readable status message
+    """
+    with _cache_lock:
+        models_unloaded = list(_session_cache.keys())
+        models_count = len(models_unloaded)
+
+        _cancel_unload_timer()
+        _session_cache.clear()
+
+        if models_count > 0:
+            message = f"Successfully unloaded {models_count} model(s): {', '.join(models_unloaded)}"
+            logger.info(message)
+        else:
+            message = "No models were loaded"
+            logger.info(message)
+
+        return {
+            "success": True,
+            "models_unloaded": models_unloaded,
+            "models_count": models_count,
+            "message": message,
+        }
+
+
+def get_cache_status() -> dict[str, Any]:
+    """Get current status of the model cache.
+
+    Returns:
+        Dictionary with cache status including:
+        - loaded_models: List of currently loaded model IDs
+        - models_count: Number of loaded models
+        - idle_timeout: Current idle timeout setting in seconds
+        - auto_unload_enabled: Whether auto-unload is enabled
+        - last_usage_time: Timestamp of last model usage (0 if never used)
+        - time_until_unload: Seconds until auto-unload (None if disabled or no models)
+    """
+    with _cache_lock:
+        loaded_models = list(_session_cache.keys())
+        models_count = len(loaded_models)
+
+        time_until_unload = None
+        if _idle_timeout > 0 and models_count > 0 and _last_usage_time > 0:
+            elapsed = time.time() - _last_usage_time
+            time_until_unload = max(0.0, _idle_timeout - elapsed)
+
+        return {
+            "loaded_models": loaded_models,
+            "models_count": models_count,
+            "idle_timeout": _idle_timeout,
+            "auto_unload_enabled": _idle_timeout > 0,
+            "last_usage_time": _last_usage_time,
+            "time_until_unload": time_until_unload,
+        }

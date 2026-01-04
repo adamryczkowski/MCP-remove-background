@@ -91,3 +91,14 @@ MIN_UNIFORM_BORDER_PERCENTAGE = 0.9
 # Output file naming
 OUTPUT_SUFFIX = "_nobg"
 OUTPUT_FORMAT = "PNG"
+
+# Model auto-unload configuration
+# Time in seconds after which idle models are unloaded to conserve RAM
+# Default: 300 seconds (5 minutes). Set to 0 to disable auto-unload.
+DEFAULT_MODEL_IDLE_TIMEOUT = 300
+
+# Hint message to remind users to unload models after use
+UNLOAD_HINT = (
+    "Tip: ML models consume significant RAM. Call 'unload_models' tool "
+    "when done processing images to free memory."
+)
